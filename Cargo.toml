@@ -1,0 +1,8 @@
+[package]
+name = "xcmpt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+runtime_id = { git = "https://github.com/AthosOfAthos/runtime_id.git" }
+hashbrown = "0.13"
