@@ -1,6 +1,5 @@
 
 use core::alloc::Layout;
-use alloc::rc::Rc;
 use hashbrown::HashMap;
 use crate::storage::Slot;
 
@@ -37,6 +36,4 @@ impl ComponentRegistry {
 		};
 		self.components.insert(id, component_info);
 	}
-
-	pub fn finalize(self) -> Rc<Self> { Rc::new(self) }
 }
