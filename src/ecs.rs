@@ -1,10 +1,9 @@
 
 use core::any::TypeId;
 
-use crate::storage::Slot;
-use crate::{Component, ComponentRegistry, component::ComponentID, storage::ComponentArray};
+use crate::storage::{Slot, ComponentMap};
+use crate::{Component, ComponentRegistry};
 use alloc::vec::Vec;
-use hashbrown::HashMap;
 use runtime_id::RuntimeID;
 
 type Index = usize;
@@ -27,7 +26,7 @@ pub struct ECS {
 	scene_id: RuntimeID,
 	length: usize,
 	entities: Vec<Entity>,
-	components: HashMap<ComponentID, ComponentArray>,
+	components: ComponentMap,
 }
 
 impl ECS {
@@ -37,12 +36,8 @@ impl ECS {
 		let scene_id = RuntimeID::new();
 		let mut entities = Vec::with_capacity(STARTING_LENGTH);
 		entities.resize(STARTING_LENGTH, Entity { alive: false, generation: 0 });
-		let mut components = HashMap::new();
-		for (component_id, component_info) in &registry.components {
-			let array = ComponentArray::new(*component_info, STARTING_LENGTH);
-			components.insert(*component_id, array);
-		}
-
+		let components = ComponentMap::new(registry, STARTING_LENGTH);
+		
 		ECS { scene_id, length: STARTING_LENGTH, entities, components }
 	}
 
@@ -71,73 +66,49 @@ impl ECS {
 
 	pub fn destroy_entity(&mut self, entity: EntityID) {
 		if self.is_valid(&entity) {
-			for component_array in self.components.values_mut() {
-				component_array.delete_index(entity.index);
-			}
-
+			self.components.delete_index(entity.index);
 			self.entities[entity.index].alive = false;
 		}
 	}
 
 	pub fn has_component<C: Component>(&self, entity: &EntityID) -> bool {
 		if !self.is_valid(entity) { return false; }
-		if self.components.contains_key(&TypeId::of::<C>()) {
-			let component_array = self.components.get(&TypeId::of::<C>()).unwrap();
-			let array = unsafe { component_array.get_slice::<C>() };
-			match array[entity.index] {
-			    Slot::Empty => return false,
-			    Slot::Some(_) => return true,
-			}
+		return match self.components.get_array::<C>() {
+		    Some(array) => array[entity.index].is_filled(),
+		    None => false,
 		}
-		false
 	}
 
 	pub fn add_component<C: Component>(&mut self, entity: &EntityID, component: C) {
 		if !self.is_valid(entity) { return; }
-		let component_id = TypeId::of::<C>();
-		if self.components.contains_key(&component_id) {
-			let component_array = self.components.get_mut(&component_id).unwrap();
-			let array = unsafe { component_array.get_slice_mut::<C>() };
-			array[entity.index] = Slot::Some(component);
+		match unsafe { self.components.get_array_mut::<C>() } {
+		    Some(array) => array[entity.index] = Slot::Some(component),
+		    None => todo!(),
 		}
 	}
 
 	pub fn remove_component<C: Component>(&mut self, entity: &EntityID) {
 		if !self.is_valid(entity) { return; }
-		let component_id = TypeId::of::<C>();
-		if self.components.contains_key(&component_id) {
-			let component_array = self.components.get_mut(&component_id).unwrap();
-			let array = unsafe { component_array.get_slice_mut::<C>() };
-			array[entity.index] = Slot::Empty;
+		match unsafe { self.components.get_array_mut::<C>() } {
+			Some(array) => array[entity.index] = Slot::Empty,
+			None => todo!(),
 		}
 	}
 
 	pub fn get_component<C: Component>(&self, entity: &EntityID) -> Option<&C> {
 		if !self.is_valid(entity) { return None; }
-		let component_id = TypeId::of::<C>();
-		if self.components.contains_key(&component_id) {
-			let component_array = self.components.get(&component_id).unwrap();
-			let array = unsafe { component_array.get_slice::<C>() };
-			match &array[entity.index] {
-			    Slot::Empty => return None,
-			    Slot::Some(component) => return Some(component),
-			}
+		match self.components.get_array::<C>() {
+		    Some(array) => array[entity.index].as_option(),
+		    None => None,
 		}
-		None
 	}
 
 	pub fn get_component_mut<C: Component>(&mut self, entity: &EntityID) -> Option<&mut C> {
 		if !self.is_valid(entity) { return None; }
-		let component_id = TypeId::of::<C>();
-		if self.components.contains_key(&component_id) {
-			let component_array = self.components.get_mut(&component_id).unwrap();
-			let array = unsafe { component_array.get_slice_mut::<C>() };
-			match &mut array[entity.index] {
-			    Slot::Empty => return None,
-			    Slot::Some(component) => return Some(component),
-			}
+		match unsafe { self.components.get_array_mut::<C>() } {
+		    Some(array) => array[entity.index].as_option_mut(),
+		    None => None,
 		}
-		None
 	}
 }
 
