@@ -150,4 +150,38 @@ mod test {
 		ecs.remove_component::<TestComponent>(&entity);
 		assert!(!ecs.has_component::<TestComponent>(&entity));
 	}
+
+	mod drop {
+		use crate::{ComponentRegistry, ECS, Component};
+		use core::sync::atomic::{AtomicUsize, Ordering};
+
+		static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+		struct Dropper {}
+		impl Component for Dropper {}
+		impl Drop for Dropper {
+		    fn drop(&mut self) {
+				DROP_COUNT.fetch_add(1, Ordering::Relaxed);
+		    }
+		}
+
+		#[test]
+		fn drop_test() {
+			const COUNT: usize = 231;
+			let mut registry = ComponentRegistry::new();
+			registry.register::<Dropper>();
+
+			let mut ecs = ECS::new(&registry);
+			for _ in 0..(COUNT - 1) {
+				let entity = ecs.create_entity();
+				ecs.add_component::<Dropper>(&entity, Dropper {});
+			}
+
+			let entity = ecs.create_entity();
+			ecs.add_component::<Dropper>(&entity, Dropper {});
+			ecs.remove_component::<Dropper>(&entity);
+			drop(ecs);
+			
+			assert_eq!(DROP_COUNT.load(Ordering::Relaxed), COUNT);
+		}
+	}
 }
