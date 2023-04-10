@@ -1,6 +1,4 @@
-
-use core::any::TypeId;
-
+use crate::component::{ComponentID, ComponentInfo};
 use crate::storage::{Slot, ComponentMap};
 use crate::{Component, ComponentRegistry};
 use alloc::vec::Vec;
@@ -22,50 +20,101 @@ struct Entity {
 	generation: Generation,
 }
 
+pub type GrowFn = fn(usize) -> usize;
+
 pub struct ECS {
 	scene_id: RuntimeID,
-	length: usize,
+	capacity: usize,
+	entity_count: usize,
+	grow_fn: Option<GrowFn>,
 	entities: Vec<Entity>,
 	components: ComponentMap,
 }
 
 impl ECS {
-	pub fn new(registry: &ComponentRegistry) -> Self {
-		const STARTING_LENGTH: usize = 512;
-		
-		let scene_id = RuntimeID::new();
-		let mut entities = Vec::with_capacity(STARTING_LENGTH);
-		entities.resize(STARTING_LENGTH, Entity { alive: false, generation: 0 });
-		let components = ComponentMap::new(registry, STARTING_LENGTH);
-		
-		ECS { scene_id, length: STARTING_LENGTH, entities, components }
+	pub fn new(capacity: usize) -> Self {
+		let mut entities = Vec::with_capacity(capacity);
+		entities.resize(capacity, Entity { alive: false, generation: 0 });
+
+		ECS {
+			scene_id: RuntimeID::new(),
+			capacity,
+			entity_count: 0,
+			grow_fn: None,
+			entities,
+			components: ComponentMap::new(),
+		}
+	}
+	
+	pub fn from_registry(registry: &ComponentRegistry, capacity: usize) -> Self {
+		let mut ecs = ECS::new(capacity);
+
+		for (id, info) in &registry.components {
+			ecs.components.register(*id, *info, capacity);
+		}
+
+		return ecs;
+	}
+	
+	pub fn register<C: Component>(&mut self) {
+		self.components.register(ComponentID::of::<C>(), ComponentInfo::new::<C>(), self.capacity);
 	}
 
-	fn allocate_entity(&mut self) -> Option<(Index, Generation)> {
-		for index in 0..self.length {
-			let entity = &mut self.entities[index];
-			if !entity.alive {
-				entity.alive = true;
-				entity.generation += 1;
-				return Some((index, entity.generation));
-			}
-		}
-		None
+	pub const fn get_capacity(&self) -> usize { self.capacity }
+
+	pub fn set_grow_fn(&mut self, grow: Option<GrowFn>) { self.grow_fn = grow }
+
+	pub fn grow_capacity(&mut self) {
+		let new_capacity = self.grow_fn.unwrap()(self.capacity);
+		self.grow_capacity_to_size(new_capacity);
 	}
+
+	pub fn grow_capacity_to_size(&mut self, new_capacity: usize) {
+		assert!(new_capacity > self.capacity, "new capacity must be larget than previous");
+		self.entities.resize(new_capacity, Entity { alive: false, generation: 0 });
+		self.components.resize(new_capacity);
+		self.capacity = new_capacity;
+	}
+
+	pub const fn get_entity_count(&self) -> usize { self.entity_count }
 
 	pub fn is_valid(&self, entity: &EntityID) -> bool {
 		if entity.scene_id != self.scene_id { return false; }
 		self.entities[entity.index] == Entity { alive: true, generation: entity.generation }
 	}
 
-	pub fn create_entity(&mut self) -> EntityID {
-		let (index, generation) = self.allocate_entity().unwrap();
-		
-		EntityID { scene_id: self.scene_id, index, generation }
+	fn allocate_entity(&mut self) -> Option<EntityID> {
+		for index in 0..self.capacity {
+			let entity = &mut self.entities[index];
+			if !entity.alive {
+				entity.alive = true;
+				entity.generation += 1;
+				return Some(EntityID { scene_id: self.scene_id, index, generation: entity.generation });
+			}
+		}
+		None
+	}
+	
+	pub fn create_entity(&mut self) -> Option<EntityID> {
+		let entity = match self.allocate_entity() {
+			Some(entity) => entity,
+			None => {
+				if self.grow_fn == None {
+					return None;
+				} else {
+					self.grow_capacity();
+					self.allocate_entity().unwrap()
+				}
+			},
+		};
+
+		self.entity_count += 1;
+		return Some(entity);
 	}
 
 	pub fn destroy_entity(&mut self, entity: EntityID) {
 		if self.is_valid(&entity) {
+			self.entity_count -= 1;
 			self.components.delete_index(entity.index);
 			self.entities[entity.index].alive = false;
 		}
@@ -115,29 +164,69 @@ impl ECS {
 #[cfg(test)]
 mod test {
 	use crate::{ComponentRegistry, ECS, Component};
-
-	#[test]
-	fn basic() {
-		let registry = ComponentRegistry::new();
-		let mut ecs = ECS::new(&registry);
-
-		let entity = ecs.create_entity();
-		assert!(ecs.is_valid(&entity));
-		ecs.destroy_entity(entity);
-		assert!(!ecs.is_valid(&entity));
-	}
-
+	
 	#[derive(PartialEq, Eq)]
 	struct TestComponent(usize);
 	impl Component for TestComponent {}
 
 	#[test]
-	fn component_basic() {
-		let mut registry = ComponentRegistry::new();
-		registry.register::<TestComponent>();
-		let mut ecs = ECS::new(&registry);
+	fn basic() {
+		let registry = ComponentRegistry::new();
+		let mut ecs = ECS::from_registry(&registry, 512);
 
-		let entity = ecs.create_entity();
+		let entity = ecs.create_entity().unwrap();
+		assert!(ecs.is_valid(&entity));
+		ecs.destroy_entity(entity);
+		assert!(!ecs.is_valid(&entity));
+	}
+
+	#[test]
+	fn count() {
+		const CAPACITY: usize = 64;
+		const ENTITY_COUNT: usize = 47;
+		
+		let mut ecs = ECS::new(CAPACITY);
+		
+		assert_eq!(ecs.get_entity_count(), 0);
+		
+		for _ in 0..ENTITY_COUNT {
+			ecs.create_entity().unwrap();
+		}
+		assert_eq!(ecs.get_entity_count(), ENTITY_COUNT);
+	}
+
+	#[test]
+	fn grow_to_size() {
+		const STARTING_CAPACITY: usize = 64;
+		const NEW_CAPACITY: usize = 1024;
+		
+		let mut ecs = ECS::new(STARTING_CAPACITY);
+		ecs.register::<TestComponent>();
+		
+		assert_eq!(ecs.capacity, STARTING_CAPACITY);
+		
+		ecs.grow_capacity_to_size(NEW_CAPACITY);
+		assert_eq!(ecs.capacity, NEW_CAPACITY);
+	}
+
+	#[test]
+	fn grow_fn() {
+		const STARTING_CAPACITY: usize = 32;
+		let grow = |capacity: usize| -> usize { capacity * 2 };
+
+		let mut ecs = ECS::new(STARTING_CAPACITY);
+		ecs.set_grow_fn(Some(grow));
+		
+		ecs.grow_capacity();
+		assert_eq!(ecs.get_capacity(), STARTING_CAPACITY * 2);
+	}
+
+	#[test]
+	fn component_basic() {
+		let mut ecs = ECS::new(512);
+		ecs.register::<TestComponent>();
+
+		let entity = ecs.create_entity().unwrap();
 		assert!(!ecs.has_component::<TestComponent>(&entity));
 		let test_component = TestComponent(128);
 		ecs.add_component(&entity, test_component);
@@ -152,7 +241,7 @@ mod test {
 	}
 
 	mod drop {
-		use crate::{ComponentRegistry, ECS, Component};
+		use crate::{ECS, Component};
 		use core::sync::atomic::{AtomicUsize, Ordering};
 
 		static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -167,16 +256,15 @@ mod test {
 		#[test]
 		fn drop_test() {
 			const COUNT: usize = 231;
-			let mut registry = ComponentRegistry::new();
-			registry.register::<Dropper>();
-
-			let mut ecs = ECS::new(&registry);
+			
+			let mut ecs = ECS::new(512);
+			ecs.register::<Dropper>();
 			for _ in 0..(COUNT - 1) {
-				let entity = ecs.create_entity();
+				let entity = ecs.create_entity().unwrap();
 				ecs.add_component::<Dropper>(&entity, Dropper {});
 			}
 
-			let entity = ecs.create_entity();
+			let entity = ecs.create_entity().unwrap();
 			ecs.add_component::<Dropper>(&entity, Dropper {});
 			ecs.remove_component::<Dropper>(&entity);
 			drop(ecs);

@@ -1,4 +1,3 @@
-use crate::ComponentRegistry;
 use crate::component::ComponentID;
 use crate::{Component, component::ComponentInfo};
 use alloc::alloc::{alloc_zeroed, dealloc};
@@ -98,13 +97,14 @@ pub(crate) struct ComponentMap {
 }
 
 impl ComponentMap {
-	pub(crate) fn new(registry: &ComponentRegistry, length: usize) -> Self {
-		let mut map = HashMap::new();
-		for (id, info) in &registry.components {
-			let array = ComponentArray::new(*info, length);
-			map.insert(*id, array);
-		}
-		ComponentMap { map }
+	pub(crate) fn new() -> Self {
+		ComponentMap { map: HashMap::new() }
+	}
+
+	// Length must be uniform across ComponentArrays
+	pub(crate) fn register(&mut self, id: ComponentID, info: ComponentInfo, length: usize) {
+		let array = ComponentArray::new(info, length);
+		self.map.insert(id, array);
 	}
 
 	pub(crate) fn resize(&mut self, new_length: usize) {

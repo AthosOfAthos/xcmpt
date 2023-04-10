@@ -9,10 +9,18 @@ pub(crate) type ComponentID = core::any::TypeId;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ComponentInfo {
-	pub(crate) name: &'static str,
 	pub(crate) layout: Layout,
 	pub(crate) stride: usize,
 	pub(crate) drop: unsafe fn(*mut u8),
+}
+
+impl ComponentInfo {
+	pub(crate) const fn new<C: Component>() -> Self {
+		let layout = Layout::new::<Slot<C>>();
+		let stride = layout.size() + (layout.size() % layout.align());
+		let drop = unsafe { core::mem::transmute(core::ptr::drop_in_place::<Slot<C>> as *mut u8) };
+		ComponentInfo { layout, stride, drop }
+	}
 }
 
 pub struct ComponentRegistry {
@@ -26,14 +34,7 @@ impl ComponentRegistry {
 
 	pub fn register<C: Component>(&mut self) {
 		let id = ComponentID::of::<C>();
-		let layout = Layout::new::<Slot<C>>();
-		let stride = layout.size() + (layout.size() % layout.align());
-		let component_info = ComponentInfo {
-			name: core::any::type_name::<C>(),
-			layout,
-			stride,
-			drop: unsafe { core::mem::transmute(core::ptr::drop_in_place::<Slot<C>> as *mut u8) },
-		};
+		let component_info = ComponentInfo::new::<C>();
 		self.components.insert(id, component_info);
 	}
 }
