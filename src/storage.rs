@@ -7,6 +7,7 @@ use core::any::TypeId;
 use hashbrown::HashMap;
 
 #[repr(u8)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Slot<C: Component> {
 	Empty = 0,
 	Some(C),
@@ -46,6 +47,7 @@ impl ComponentArray {
 	fn new(component_info: ComponentInfo, length: usize) -> Self {
 		let array_layout = Layout::from_size_align(component_info.stride * length, component_info.layout.align()).unwrap();
 		let array = unsafe { alloc_zeroed(array_layout) };
+		assert!(!array.is_null());
 
 		ComponentArray { array, length, array_layout, component_info }
 	}
@@ -54,7 +56,7 @@ impl ComponentArray {
 		let new_layout = Layout::from_size_align(self.component_info.stride * new_length, self.component_info.layout.align()).unwrap();
 		unsafe {
 			let new_array = alloc_zeroed(new_layout);
-			copy_nonoverlapping(self.array, new_array, self.component_info.stride * new_length);
+			copy_nonoverlapping(self.array, new_array, self.component_info.stride * self.length);
 			dealloc(self.array, self.array_layout);
 
 			self.array = new_array;
@@ -128,5 +130,67 @@ impl ComponentMap {
 	pub(crate) unsafe fn get_array_mut<C: Component>(&self) -> Option<&mut [Slot<C>]> {
 		let array = self.map.get(&TypeId::of::<C>())?;
 		Some(array.get_slice_mut::<C>())
+	}
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{Component, component::ComponentInfo, storage::{ComponentArray, Slot}};
+
+	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+	pub struct TestComponent(usize);
+	impl Component for TestComponent {}
+	const INFO: ComponentInfo = ComponentInfo::new::<TestComponent>();
+
+	#[test]
+	fn delete_index() {
+		const LENGTH: usize = 32;
+		let mut array = ComponentArray::new(INFO, LENGTH);
+
+		unsafe {
+			let slice_mut = array.get_slice_mut::<TestComponent>();
+			for index in 0..LENGTH {
+				slice_mut[index] = Slot::Some(TestComponent(index));
+			}
+		}
+
+		for index in 0..LENGTH {
+			array.delete_index(index);
+		}
+
+		unsafe {
+			let slice = array.get_slice::<TestComponent>();
+			for index in 0..LENGTH {
+				assert_eq!(slice[index], Slot::Empty);
+			}
+		}
+	}
+
+	#[test]
+	fn resize() {
+		const STARTING_LENGTH: usize = 64;
+		const RESIZED_LENGTH: usize = 128;
+		let mut array = ComponentArray::new(INFO, STARTING_LENGTH);
+
+		unsafe {
+			let slice_mut = array.get_slice_mut::<TestComponent>();
+			for index in 0..STARTING_LENGTH {
+				slice_mut[index] = Slot::Some(TestComponent(index));
+			}
+		}
+
+		array.resize(RESIZED_LENGTH);
+
+		unsafe {
+			let slice = array.get_slice::<TestComponent>();
+			for index in 0..RESIZED_LENGTH {
+				let component = if index < STARTING_LENGTH {
+					Slot::Some(TestComponent(index))
+				} else {
+					Slot::Empty
+				};
+				assert_eq!(slice[index], component);
+			}
+		}
 	}
 }
