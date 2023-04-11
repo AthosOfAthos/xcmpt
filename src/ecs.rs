@@ -131,7 +131,7 @@ impl ECS {
 	pub fn add_component<C: Component>(&mut self, entity: &EntityID, component: C) {
 		if !self.is_valid(entity) { return; }
 		match unsafe { self.components.get_array_mut::<C>() } {
-		    Some(array) => array[entity.index] = Slot::Some(component),
+		    Some(array) => array[entity.index] = Slot::Filled(component),
 		    None => todo!(),
 		}
 	}

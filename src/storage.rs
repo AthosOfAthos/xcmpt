@@ -10,28 +10,28 @@ use hashbrown::HashMap;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Slot<C: Component> {
 	Empty = 0,
-	Some(C),
+	Filled(C),
 }
 
 impl<C: Component> Slot<C> {
 	pub(crate) fn is_filled(&self) -> bool {
 		match self {
 		    Slot::Empty => false,
-		    Slot::Some(_) => true,
+		    Slot::Filled(_) => true,
 		}
 	}
 
 	pub(crate) fn as_option(&self) -> Option<&C> {
 		match self {
 			Slot::Empty => None,
-			Slot::Some(component) => Some(component),
+			Slot::Filled(component) => Some(component),
 		}
 	}
 	
 	pub(crate) fn as_option_mut(&mut self) -> Option<&mut C> {
 		match self {
 			Slot::Empty => None,
-			Slot::Some(component) => Some(component),
+			Slot::Filled(component) => Some(component),
 		}
 	}
 }
@@ -150,7 +150,7 @@ mod test {
 		unsafe {
 			let slice_mut = array.get_slice_mut::<TestComponent>();
 			for index in 0..LENGTH {
-				slice_mut[index] = Slot::Some(TestComponent(index));
+				slice_mut[index] = Slot::Filled(TestComponent(index));
 			}
 		}
 
@@ -175,7 +175,7 @@ mod test {
 		unsafe {
 			let slice_mut = array.get_slice_mut::<TestComponent>();
 			for index in 0..STARTING_LENGTH {
-				slice_mut[index] = Slot::Some(TestComponent(index));
+				slice_mut[index] = Slot::Filled(TestComponent(index));
 			}
 		}
 
@@ -185,7 +185,7 @@ mod test {
 			let slice = array.get_slice::<TestComponent>();
 			for index in 0..RESIZED_LENGTH {
 				let component = if index < STARTING_LENGTH {
-					Slot::Some(TestComponent(index))
+					Slot::Filled(TestComponent(index))
 				} else {
 					Slot::Empty
 				};
