@@ -1,6 +1,6 @@
 use crate::component::{ComponentID, ComponentInfo};
 use crate::storage::{Slot, ComponentMap};
-use crate::{Component, ComponentRegistry};
+use crate::{Component, ComponentRegistry, Query, QueryIter};
 use alloc::vec::Vec;
 use runtime_id::RuntimeID;
 
@@ -24,11 +24,11 @@ pub type GrowFn = fn(usize) -> usize;
 
 pub struct ECS {
 	scene_id: RuntimeID,
-	capacity: usize,
+	pub(crate) capacity: usize,
 	entity_count: usize,
 	grow_fn: Option<GrowFn>,
 	entities: Vec<Entity>,
-	components: ComponentMap,
+	pub(crate) components: ComponentMap,
 }
 
 impl ECS {
@@ -112,6 +112,13 @@ impl ECS {
 		return Some(entity);
 	}
 
+	pub fn get_index(&self, index: usize) -> Option<EntityID> {
+		if index >= self.capacity { return None }
+		let entity = &self.entities[index];
+		if !entity.alive { return None }
+		Some(EntityID { scene_id: self.scene_id, index, generation: entity.generation })
+	}
+	
 	pub fn destroy_entity(&mut self, entity: EntityID) {
 		if self.is_valid(&entity) {
 			self.entity_count -= 1;
@@ -159,6 +166,8 @@ impl ECS {
 		    None => None,
 		}
 	}
+
+	pub fn query<Q: Query>(&self) -> QueryIter<Q> { QueryIter::new(self) }
 }
 
 #[cfg(test)]
@@ -238,6 +247,22 @@ mod test {
 		
 		ecs.remove_component::<TestComponent>(&entity);
 		assert!(!ecs.has_component::<TestComponent>(&entity));
+	}
+
+	#[test]
+	fn query() {
+		const CAPACITY: usize = 256;
+		const THE_ANSWER: usize = 42;
+		let mut ecs = ECS::new(CAPACITY);
+		ecs.register::<TestComponent>();
+
+		let entity = ecs.create_entity().unwrap();
+		ecs.add_component(&entity, TestComponent(THE_ANSWER));
+
+		for (id, test) in ecs.query::<TestComponent>() {
+			assert!(ecs.is_valid(&id));
+			assert_eq!(test.0, THE_ANSWER);
+		}
 	}
 
 	mod drop {

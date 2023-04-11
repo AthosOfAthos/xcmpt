@@ -8,7 +8,7 @@ use hashbrown::HashMap;
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Slot<C: Component> {
+pub enum Slot<C: Component> {
 	Empty = 0,
 	Filled(C),
 }
