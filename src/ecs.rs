@@ -1,6 +1,6 @@
 use crate::component::{ComponentID, ComponentInfo};
 use crate::storage::{Slot, ComponentMap};
-use crate::{Component, ComponentRegistry, Query, QueryIter};
+use crate::{Component, ComponentRegistry, Query, QueryIter, QueryMut, QueryMutIter};
 use alloc::vec::Vec;
 use runtime_id::RuntimeID;
 
@@ -168,6 +168,8 @@ impl ECS {
 	}
 
 	pub fn query<Q: Query>(&self) -> QueryIter<Q> { QueryIter::new(self) }
+
+	pub fn query_mut<Q: QueryMut>(&mut self) -> QueryMutIter<Q> { QueryMutIter::new(self) }
 }
 
 #[cfg(test)]

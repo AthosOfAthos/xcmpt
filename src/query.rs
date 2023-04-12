@@ -10,6 +10,15 @@ pub trait Query {
 	unsafe fn next<'a>(ecs: &'a ECS, index: &mut usize, array: *const Self::Array) -> Option<Self::Output<'a>>;
 }
 
+pub trait QueryMut {
+	type Output<'a> where Self: 'a;
+	type Array;
+
+	unsafe fn get_array(ecs: &ECS) -> Self::Array;
+
+	unsafe fn next<'a>(ecs: &'a ECS, index: &mut usize, array: *const Self::Array) -> Option<Self::Output<'a>>;
+}
+
 impl<C: Component> Query for C {
 	type Output<'a> = (EntityID, &'a C);
 	type Array = *const [Slot<C>];
@@ -25,6 +34,27 @@ impl<C: Component> Query for C {
 			*index += 1;
 			if element.is_filled() {
 				return Some((id.unwrap(), element.as_option().unwrap()));
+			}
+		}
+		None
+    }
+}
+
+impl<C: Component> QueryMut for C {
+	type Output<'a> = (EntityID, &'a mut C);
+	type Array = *mut [Slot<C>];
+
+	unsafe fn get_array(ecs: &ECS) -> Self::Array {
+        ecs.components.get_array_mut::<C>().unwrap()
+    }
+	
+	unsafe fn next<'a>(ecs: &'a ECS, index: &mut usize, array: *const Self::Array) -> Option<Self::Output<'a>> {
+    	while (*index) < ecs.capacity {
+			let id = ecs.get_index(*index);
+			let element = &mut(**array)[*index];
+			*index += 1;
+			if element.is_filled() {
+				return Some((id.unwrap(), element.as_option_mut().unwrap()));
 			}
 		}
 		None
@@ -77,5 +107,25 @@ impl<'a, Q: Query> Iterator for QueryIter<'a, Q> {
 	type Item = Q::Output<'a>;
 	fn next(&mut self) -> Option<Self::Item> {
 		unsafe { Q::next(self.ecs, &mut self.index, &self.array) }
+    }
+}
+
+pub struct QueryMutIter<'a, Q: QueryMut + 'a> {
+	ecs: &'a ECS,
+	index: usize,
+	array: Q::Array,
+}
+
+impl<'a, Q: QueryMut> QueryMutIter<'a, Q> {
+	pub(crate) fn new(ecs: &'a mut ECS) -> Self {
+		let array = unsafe { Q::get_array(ecs) };
+		QueryMutIter { ecs, index: 0, array }
+	}
+}
+
+impl<'a, Q: QueryMut> Iterator for QueryMutIter<'a, Q> {
+	type Item = Q::Output<'a>;
+	fn next(&mut self) -> Option<Self::Item> {
+    	unsafe { Q::next(self.ecs, &mut self.index, &self.array) }
     }
 }
